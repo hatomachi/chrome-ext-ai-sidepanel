@@ -317,10 +317,13 @@ export const App: React.FC = () => {
     setMessages((prev) => [...prev, userMsg]);
     if (!customPrompt) setInputText('');
 
+    const isResume = messages.some((m) => m.role === 'assistant' && !m.isError && m.text.trim().length > 0);
+
     await sendPrompt({
       text: textToSend,
       attachments: currentAttachment ? [currentAttachment] : undefined,
       sessionId: currentSessionId,
+      isResume,
       projectId: currentProject?.id,
       cwd: currentProject?.path || agentCwd,
     });
@@ -442,14 +445,15 @@ export const App: React.FC = () => {
             value={settings.engine}
             onChange={(e) => {
               const newEngine = e.target.value as 'claude' | 'copilot';
-              const newSettings = { ...settings, engine: newEngine };
+              const newModel = newEngine === 'copilot' ? 'default' : 'claude-sonnet-4-6';
+              const newSettings = { ...settings, engine: newEngine, model: newModel };
               handleSaveSettings(newSettings);
             }}
             className="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-slate-200 text-[10px] focus:outline-none focus:border-indigo-500 cursor-pointer font-mono"
             title="AIエンジンの切り替え"
           >
-            <option value="copilot">Copilot</option>
             <option value="claude">Claude</option>
+            <option value="copilot">Copilot</option>
           </select>
         </div>
       </div>

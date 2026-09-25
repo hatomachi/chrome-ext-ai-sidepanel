@@ -455,20 +455,33 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
     text: string;
     attachments?: ContextAttachment[];
     sessionId: string;
+    isResume?: boolean;
     projectId?: string;
     cwd?: string;
   }) => {
-    const { text, attachments, sessionId, projectId, cwd } = params;
+    const { text, attachments, sessionId, isResume, projectId, cwd } = params;
     const fullText = composeFullPrompt(text, attachments);
+
+    const currentEngine = settingsRef.current.engine;
+    let effectiveModel: string | undefined = settingsRef.current.model;
+
+    // Copilot CLI does not accept Claude model names (e.g. claude-sonnet-4-6)
+    // Omit --model flag to use Copilot CLI's default optimal model
+    if (currentEngine === 'copilot') {
+      if (!effectiveModel || effectiveModel.startsWith('claude-') || effectiveModel === 'default') {
+        effectiveModel = undefined;
+      }
+    }
 
     const payload = {
       type: 'prompt',
       text: fullText,
       sessionId,
+      isResume,
       projectId,
       cwd,
-      model: settingsRef.current.model,
-      engine: settingsRef.current.engine,
+      model: effectiveModel,
+      engine: currentEngine,
     };
 
     if (activeTransport === 'ws' && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
