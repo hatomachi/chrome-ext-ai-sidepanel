@@ -37,8 +37,28 @@ import { ContextPillBar } from '../components/ContextPillBar';
 import { ContextAttachmentModal } from '../components/ContextAttachmentModal';
 import { SettingsModal } from '../components/SettingsModal';
 
-function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+/**
+ * RFC 4122 compliant UUID v4 generator
+ * Claude Code CLI requires a valid UUID for --session-id
+ */
+function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function isValidUUID(id: string): boolean {
+  return UUID_REGEX.test(id);
+}
+
+function generateMsgId(): string {
+  return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 export const App: React.FC = () => {
@@ -67,20 +87,25 @@ export const App: React.FC = () => {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // --- 3. Chat & Session State ---
+  // Ensure valid UUID for Claude Code CLI
+  const [currentSessionId, setCurrentSessionId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(AI_REMOTE_STORAGE_KEYS.LAST_SESSION);
+      if (saved && isValidUUID(saved)) return saved;
+    } catch {}
+    const newUuid = generateUUID();
+    try {
+      localStorage.setItem(AI_REMOTE_STORAGE_KEYS.LAST_SESSION, newUuid);
+    } catch {}
+    return newUuid;
+  });
+
   const [sessions, setSessions] = useState<SessionInfo[]>(() => {
     try {
       const saved = localStorage.getItem(AI_REMOTE_STORAGE_KEYS.SESSIONS);
       if (saved) return JSON.parse(saved);
     } catch {}
     return [];
-  });
-
-  const [currentSessionId, setCurrentSessionId] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem(AI_REMOTE_STORAGE_KEYS.LAST_SESSION);
-      if (saved) return saved;
-    } catch {}
-    return generateId();
   });
 
   const [projects, setProjects] = useState<ProjectInfo[]>(() => {
@@ -134,7 +159,7 @@ export const App: React.FC = () => {
   // Auto-scroll messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, statusMessage]);
 
   // --- 4. Tab Context Extraction ---
   const fetchActiveTabContext = useCallback(async (mode?: ExtractionMode) => {
@@ -194,9 +219,10 @@ export const App: React.FC = () => {
       setMessages((prev) => {
         if (prev.length === 0) return prev;
         const last = prev[prev.length - 1];
-        if (last.role === 'assistant' && last.isStreaming) {
+        if (last.role === 'assistant') {
           const updated = {
             ...last,
+            isStreaming: true,
             text: (last.text || '') + delta,
             content: (last.content || '') + delta,
           };
@@ -207,17 +233,16 @@ export const App: React.FC = () => {
     },
     onStatusMessage: (msg) => {
       setStatusMessage(msg);
-      setTimeout(() => setStatusMessage(null), 4000);
     },
     onTurnStart: () => {
+      setStatusMessage('AI思考中...');
       setMessages((prev) => {
-        // If last message is already a streaming assistant, don't duplicate
         const last = prev[prev.length - 1];
         if (last && last.role === 'assistant' && last.isStreaming) return prev;
         return [
           ...prev,
           {
-            id: generateId(),
+            id: generateMsgId(),
             role: 'assistant',
             text: '',
             content: '',
@@ -230,6 +255,7 @@ export const App: React.FC = () => {
       });
     },
     onTurnEnd: () => {
+      setStatusMessage(null);
       setMessages((prev) => {
         if (prev.length === 0) return prev;
         const last = prev[prev.length - 1];
@@ -240,12 +266,13 @@ export const App: React.FC = () => {
       });
     },
     onError: (err) => {
+      setStatusMessage(null);
       setMessages((prev) => [
         ...prev,
         {
-          id: generateId(),
+          id: generateMsgId(),
           role: 'assistant',
-          text: `⚠️ エラーが発生しました: ${err}`,
+          text: `⚠️ エラー: ${err}`,
           content: err,
           isError: true,
           timestamp: Date.now(),
@@ -257,7 +284,6 @@ export const App: React.FC = () => {
       setProjects(projs);
       localStorage.setItem(AI_REMOTE_STORAGE_KEYS.PROJECTS, JSON.stringify(projs));
       if (!currentProject && projs.length > 0) {
-        // Default to personal-vault if available
         const pv = projs.find((p) => p.name.includes('personal-vault') || p.path.includes('personal-vault'));
         setCurrentProject(pv || projs[0]);
       }
@@ -279,7 +305,7 @@ export const App: React.FC = () => {
     if (!textToSend.trim() || isExecuting) return;
 
     const userMsg: AiChatMessage = {
-      id: generateId(),
+      id: generateMsgId(),
       role: 'user',
       text: textToSend,
       content: textToSend,
@@ -307,10 +333,10 @@ export const App: React.FC = () => {
 
   // New session
   const handleNewSession = () => {
-    const newId = generateId();
-    setCurrentSessionId(newId);
+    const newUuid = generateUUID();
+    setCurrentSessionId(newUuid);
     setMessages([]);
-    localStorage.setItem(AI_REMOTE_STORAGE_KEYS.LAST_SESSION, newId);
+    localStorage.setItem(AI_REMOTE_STORAGE_KEYS.LAST_SESSION, newUuid);
   };
 
   // Copy message text
@@ -357,7 +383,7 @@ export const App: React.FC = () => {
           <button
             onClick={handleNewSession}
             className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
-            title="新規チャット開始"
+            title="新規チャット開始 (UUID再発行)"
           >
             <Plus className="w-4 h-4" />
           </button>
@@ -384,7 +410,7 @@ export const App: React.FC = () => {
       <div className="flex items-center justify-between px-3 py-1 bg-slate-900/60 border-b border-slate-800 text-[11px] text-slate-300">
         <div className="flex items-center gap-1.5 min-w-0">
           <FolderGit2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-          <span className="text-slate-400 shrink-0">作業Vault/Dir:</span>
+          <span className="text-slate-400 shrink-0">Vault/Dir:</span>
           {projects.length > 0 ? (
             <select
               value={currentProject?.id || ''}
@@ -395,7 +421,7 @@ export const App: React.FC = () => {
                   localStorage.setItem(AI_REMOTE_STORAGE_KEYS.LAST_PROJECT, JSON.stringify(found));
                 }
               }}
-              className="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-slate-200 text-[11px] truncate max-w-[170px] focus:outline-none focus:border-indigo-500 cursor-pointer"
+              className="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-slate-200 text-[11px] truncate max-w-[150px] focus:outline-none focus:border-indigo-500 cursor-pointer"
             >
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -404,21 +430,35 @@ export const App: React.FC = () => {
               ))}
             </select>
           ) : (
-            <span className="text-slate-400 font-mono text-[10px] truncate max-w-[180px]">
+            <span className="text-slate-400 font-mono text-[10px] truncate max-w-[150px]">
               {agentCwd || '未指定'}
             </span>
           )}
         </div>
 
-        <div className="text-[10px] text-indigo-400 font-mono">
-          {settings.model.replace('claude-', '')}
+        {/* Engine switcher toggle */}
+        <div className="flex items-center gap-1">
+          <select
+            value={settings.engine}
+            onChange={(e) => {
+              const newEngine = e.target.value as 'claude' | 'copilot';
+              const newSettings = { ...settings, engine: newEngine };
+              handleSaveSettings(newSettings);
+            }}
+            className="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-slate-200 text-[10px] focus:outline-none focus:border-indigo-500 cursor-pointer font-mono"
+            title="AIエンジンの切り替え"
+          >
+            <option value="copilot">Copilot</option>
+            <option value="claude">Claude</option>
+          </select>
         </div>
       </div>
 
       {/* Status banner */}
       {statusMessage && (
-        <div className="bg-indigo-950/80 border-b border-indigo-800 px-3 py-1 text-[11px] text-indigo-200 animate-in fade-in">
-          {statusMessage}
+        <div className="bg-indigo-950/80 border-b border-indigo-800 px-3 py-1 text-[11px] text-indigo-200 flex items-center gap-1.5 animate-in fade-in">
+          <Sparkles className="w-3 h-3 text-indigo-400 animate-spin" />
+          <span>{statusMessage}</span>
         </div>
       )}
 

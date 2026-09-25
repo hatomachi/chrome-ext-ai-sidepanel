@@ -162,15 +162,43 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
     onProjectsList,
   };
 
+  // Helper to send message to Agent via WebSocket or HTTP POST
+  const sendMessage = useCallback((payload: any) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify(payload));
+        return true;
+      } catch {}
+    }
+    return false;
+  }, []);
+
   // Process messages coming from Hub/Agent
   const handleInboundMessage = useCallback((msg: InboundHubMessage) => {
     const cb = callbacksRef.current;
     switch (msg.type) {
+      // Hub status broadcast
       case 'status': {
         const connected = Boolean(msg.agentConnected);
         setIsAgentConnected(connected);
         if (msg.hostname) setAgentHostname(msg.hostname);
         if (msg.cwd) setAgentCwd(msg.cwd);
+        if (connected) {
+          sendMessage({ type: 'get_status' });
+          sendMessage({ type: 'list_projects' });
+          sendMessage({ type: 'list_sessions' });
+        }
+        break;
+      }
+
+      // Agent direct status response
+      case 'agent_status': {
+        setIsAgentConnected(true);
+        if (msg.hostname) setAgentHostname(msg.hostname);
+        if (msg.cwd) setAgentCwd(msg.cwd);
+        setIsExecuting(Boolean(msg.isBusy));
+        sendMessage({ type: 'list_projects' });
+        sendMessage({ type: 'list_sessions' });
         break;
       }
 
@@ -203,7 +231,8 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
         break;
       }
 
-      case 'turn_end': {
+      case 'turn_end':
+      case 'execution_aborted': {
         setIsExecuting(false);
         cb.onTurnEnd?.();
         break;
@@ -213,14 +242,27 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
         const ev = msg.event;
         if (!ev) break;
 
-        if (ev.type === 'content_block_delta' && ev.delta?.text) {
-          cb.onDelta?.(ev.delta.text);
-        } else if (ev.type === 'text_delta' && ev.text) {
+        // 1) stream-json content_block_delta
+        if (ev.type === 'stream_event' && ev.event?.type === 'content_block_delta') {
+          const deltaText = ev.event.delta?.text || '';
+          if (deltaText) {
+            cb.onDelta?.(deltaText);
+          }
+        }
+        // 2) Direct text_delta or message
+        else if (ev.type === 'text_delta' && ev.text) {
           cb.onDelta?.(ev.text);
         } else if (ev.type === 'message' && typeof ev.content === 'string') {
           cb.onDelta?.(ev.content);
-        } else if (ev.type === 'user_feedback_request') {
-          cb.onStatusMessage?.(`確認要求: ${ev.message || '承認してください'}`);
+        }
+        // 3) Assistant message blocks fallback
+        else if (ev.type === 'assistant' && ev.message?.content) {
+          const blocks = Array.isArray(ev.message.content) ? ev.message.content : [];
+          for (const b of blocks) {
+            if (b.type === 'tool_use') {
+              cb.onStatusMessage?.(`ツール実行中: ${b.name}...`);
+            }
+          }
         }
         break;
       }
@@ -232,9 +274,15 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
         break;
       }
 
+      case 'tool_approval_request': {
+        cb.onStatusMessage?.(`承認要求: ${msg.toolName} (${msg.description || '許可が必要です'})`);
+        break;
+      }
+
+      case 'turn_error':
       case 'error': {
         setIsExecuting(false);
-        const errText = msg.message || '不明なエラーが発生しました';
+        const errText = msg.error || msg.message || '不明なエラーが発生しました';
         cb.onError?.(errText);
         break;
       }
@@ -242,7 +290,7 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
       default:
         break;
     }
-  }, []);
+  }, [sendMessage]);
 
   // Cleanup active connections
   const cleanup = useCallback(() => {
@@ -295,8 +343,8 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
 
       try {
         ws.send(JSON.stringify({ type: 'get_status' }));
-        ws.send(JSON.stringify({ type: 'get_projects' }));
-        ws.send(JSON.stringify({ type: 'get_sessions' }));
+        ws.send(JSON.stringify({ type: 'list_projects' }));
+        ws.send(JSON.stringify({ type: 'list_sessions' }));
       } catch {}
     };
 
@@ -406,7 +454,7 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
   const sendPrompt = useCallback(async (params: {
     text: string;
     attachments?: ContextAttachment[];
-    sessionId?: string;
+    sessionId: string;
     projectId?: string;
     cwd?: string;
   }) => {
@@ -469,8 +517,8 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
     if (activeTransport === 'ws' && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
         wsRef.current.send(JSON.stringify({ type: 'get_status' }));
-        wsRef.current.send(JSON.stringify({ type: 'get_projects' }));
-        wsRef.current.send(JSON.stringify({ type: 'get_sessions' }));
+        wsRef.current.send(JSON.stringify({ type: 'list_projects' }));
+        wsRef.current.send(JSON.stringify({ type: 'list_sessions' }));
       } catch {}
     }
   }, [activeTransport]);
