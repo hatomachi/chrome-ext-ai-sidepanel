@@ -46,7 +46,14 @@ export const App: React.FC = () => {
   const [settings, setSettings] = useState<AiRemoteSettings>(() => {
     try {
       const saved = localStorage.getItem(AI_REMOTE_STORAGE_KEYS.SETTINGS);
-      if (saved) return { ...DEFAULT_AI_REMOTE_SETTINGS, ...JSON.parse(saved) };
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...DEFAULT_AI_REMOTE_SETTINGS,
+          ...parsed,
+          authToken: parsed.authToken && parsed.authToken.trim() !== '' ? parsed.authToken : DEFAULT_AI_REMOTE_SETTINGS.authToken,
+        };
+      }
     } catch {}
     return DEFAULT_AI_REMOTE_SETTINGS;
   });

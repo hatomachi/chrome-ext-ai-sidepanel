@@ -130,14 +130,41 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
 
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
+  const prevConfigRef = useRef({
+    hubUrl: settings.hubUrl,
+    authToken: settings.authToken,
+    transportMode: settings.transportMode,
+  });
+
+  const callbacksRef = useRef({
+    onDelta,
+    onStatusMessage,
+    onTurnStart,
+    onTurnEnd,
+    onError,
+    onSessionsList,
+    onSessionMessages,
+    onProjectsList,
+  });
+  callbacksRef.current = {
+    onDelta,
+    onStatusMessage,
+    onTurnStart,
+    onTurnEnd,
+    onError,
+    onSessionsList,
+    onSessionMessages,
+    onProjectsList,
+  };
+
   // Process messages coming from Hub/Agent
   const handleInboundMessage = useCallback((msg: InboundHubMessage) => {
+    const cb = callbacksRef.current;
     switch (msg.type) {
       case 'status': {
         const connected = Boolean(msg.agentConnected);
@@ -151,34 +178,34 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
         if (Array.isArray(msg.projects)) {
           setAvailableProjects(msg.projects);
           if (msg.baseDir) setProjectsBaseDir(msg.baseDir);
-          onProjectsList?.(msg.projects, msg.baseDir || '');
+          cb.onProjectsList?.(msg.projects, msg.baseDir || '');
         }
         break;
       }
 
       case 'sessions_list': {
         if (Array.isArray(msg.sessions)) {
-          onSessionsList?.(msg.sessions);
+          cb.onSessionsList?.(msg.sessions);
         }
         break;
       }
 
       case 'session_messages': {
         if (msg.sessionId && Array.isArray(msg.messages)) {
-          onSessionMessages?.(msg.sessionId, msg.messages);
+          cb.onSessionMessages?.(msg.sessionId, msg.messages);
         }
         break;
       }
 
       case 'turn_start': {
         setIsExecuting(true);
-        onTurnStart?.();
+        cb.onTurnStart?.();
         break;
       }
 
       case 'turn_end': {
         setIsExecuting(false);
-        onTurnEnd?.();
+        cb.onTurnEnd?.();
         break;
       }
 
@@ -186,22 +213,21 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
         const ev = msg.event;
         if (!ev) break;
 
-        // Claude Code streaming delta
         if (ev.type === 'content_block_delta' && ev.delta?.text) {
-          onDelta?.(ev.delta.text);
+          cb.onDelta?.(ev.delta.text);
         } else if (ev.type === 'text_delta' && ev.text) {
-          onDelta?.(ev.text);
+          cb.onDelta?.(ev.text);
         } else if (ev.type === 'message' && typeof ev.content === 'string') {
-          onDelta?.(ev.content);
+          cb.onDelta?.(ev.content);
         } else if (ev.type === 'user_feedback_request') {
-          onStatusMessage?.(`確認要求: ${ev.message || '承認してください'}`);
+          cb.onStatusMessage?.(`確認要求: ${ev.message || '承認してください'}`);
         }
         break;
       }
 
       case 'agent_event': {
         if (msg.event?.type === 'output' && typeof msg.event.text === 'string') {
-          onDelta?.(msg.event.text);
+          cb.onDelta?.(msg.event.text);
         }
         break;
       }
@@ -209,21 +235,48 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
       case 'error': {
         setIsExecuting(false);
         const errText = msg.message || '不明なエラーが発生しました';
-        onError?.(errText);
+        cb.onError?.(errText);
         break;
       }
 
       default:
         break;
     }
-  }, [onDelta, onStatusMessage, onTurnStart, onTurnEnd, onError, onProjectsList, onSessionsList, onSessionMessages]);
+  }, []);
+
+  // Cleanup active connections
+  const cleanup = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    if (wsRef.current) {
+      try {
+        wsRef.current.onopen = null;
+        wsRef.current.onmessage = null;
+        wsRef.current.onerror = null;
+        wsRef.current.onclose = null;
+        wsRef.current.close();
+      } catch {}
+      wsRef.current = null;
+    }
+    if (eventSourceRef.current) {
+      try {
+        eventSourceRef.current.onopen = null;
+        eventSourceRef.current.onmessage = null;
+        eventSourceRef.current.onerror = null;
+        eventSourceRef.current.close();
+      } catch {}
+      eventSourceRef.current = null;
+    }
+    setIsHubConnected(false);
+    setIsAgentConnected(false);
+    setActiveTransport('none');
+  }, []);
 
   // Connect via WebSocket
   const connectWs = useCallback(() => {
-    if (wsRef.current) {
-      try { wsRef.current.close(); } catch {}
-      wsRef.current = null;
-    }
+    cleanup();
 
     const wsUrl = deriveWsUrl(settingsRef.current.hubUrl, settingsRef.current.authToken);
     let ws: WebSocket;
@@ -240,7 +293,6 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
       setIsHubConnected(true);
       setActiveTransport('ws');
 
-      // Request initial status and projects
       try {
         ws.send(JSON.stringify({ type: 'get_status' }));
         ws.send(JSON.stringify({ type: 'get_projects' }));
@@ -267,20 +319,16 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
       setActiveTransport('none');
       wsRef.current = null;
 
-      // Schedule reconnect
       const delay = calculateBackoffDelay(retryCountRef.current++);
       reconnectTimerRef.current = setTimeout(() => {
         connectWs();
       }, delay);
     };
-  }, [handleInboundMessage]);
+  }, [cleanup, handleInboundMessage]);
 
-  // Connect via HTTP SSE + POST fallback
+  // Connect via HTTP SSE
   const connectHttp = useCallback(() => {
-    if (eventSourceRef.current) {
-      try { eventSourceRef.current.close(); } catch {}
-      eventSourceRef.current = null;
-    }
+    cleanup();
 
     const { eventsUrl } = deriveHttpUrls(settingsRef.current.hubUrl, settingsRef.current.authToken);
     const es = new EventSource(eventsUrl);
@@ -313,13 +361,10 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
         connectHttp();
       }, delay);
     };
-  }, [handleInboundMessage]);
+  }, [cleanup, handleInboundMessage]);
 
-  // Connection manager based on transport mode
+  // Connect manager
   const connect = useCallback(() => {
-    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-    if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
-
     const mode = settingsRef.current.transportMode;
     if (mode === 'http') {
       connectHttp();
@@ -328,21 +373,33 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
     }
   }, [connectWs, connectHttp]);
 
-  // Connect on mount or when settings change
+  // Initial connect on mount
   useEffect(() => {
     connect();
     return () => {
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
-      if (wsRef.current) {
-        try { wsRef.current.close(); } catch {}
-        wsRef.current = null;
-      }
-      if (eventSourceRef.current) {
-        try { eventSourceRef.current.close(); } catch {}
-        eventSourceRef.current = null;
-      }
+      cleanup();
     };
+  }, [connect, cleanup]);
+
+  // Re-connect only when relevant settings actually changed
+  useEffect(() => {
+    const prev = prevConfigRef.current;
+    const curr = {
+      hubUrl: settings.hubUrl,
+      authToken: settings.authToken,
+      transportMode: settings.transportMode,
+    };
+
+    const isChanged =
+      prev.hubUrl !== curr.hubUrl ||
+      prev.authToken !== curr.authToken ||
+      prev.transportMode !== curr.transportMode;
+
+    if (isChanged) {
+      prevConfigRef.current = curr;
+      retryCountRef.current = 0;
+      connect();
+    }
   }, [settings.hubUrl, settings.authToken, settings.transportMode, connect]);
 
   // Send prompt to Agent
@@ -382,10 +439,10 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
       return res.ok;
     } catch (err) {
       console.error('[AI Remote] Failed to send prompt via HTTP:', err);
-      onError?.(`送信エラー: ${(err as Error).message}`);
+      callbacksRef.current.onError?.(`送信エラー: ${(err as Error).message}`);
       return false;
     }
-  }, [activeTransport, onError]);
+  }, [activeTransport]);
 
   // Abort execution
   const abortTurn = useCallback(async (sessionId?: string) => {
