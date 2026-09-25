@@ -96,7 +96,11 @@ export const SettingsModal: React.FC<Props> = ({
               </label>
               <select
                 value={formData.engine}
-                onChange={(e) => setFormData({ ...formData, engine: e.target.value as AIEngine })}
+                onChange={(e) => {
+                  const newEngine = e.target.value as AIEngine;
+                  const newModel = newEngine === 'copilot' ? 'auto' : 'claude-sonnet-4-6';
+                  setFormData({ ...formData, engine: newEngine, model: newModel });
+                }}
                 className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-slate-200 focus:outline-none focus:border-indigo-500 text-xs"
               >
                 <option value="claude">Claude Code</option>
@@ -111,9 +115,12 @@ export const SettingsModal: React.FC<Props> = ({
                 type="text"
                 value={formData.model}
                 onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                placeholder="claude-opus-4-7"
+                placeholder={formData.engine === 'copilot' ? 'auto (自動最適)' : 'claude-sonnet-4-6'}
                 className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-slate-200 focus:outline-none focus:border-indigo-500 font-mono text-[11px]"
               />
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                {formData.engine === 'copilot' ? 'Copilot は auto（自動選択）推奨' : 'claude-opus-4-7 等'}
+              </p>
             </div>
           </div>
 

@@ -445,7 +445,7 @@ export const App: React.FC = () => {
             value={settings.engine}
             onChange={(e) => {
               const newEngine = e.target.value as 'claude' | 'copilot';
-              const newModel = newEngine === 'copilot' ? 'default' : 'claude-sonnet-4-6';
+              const newModel = newEngine === 'copilot' ? 'auto' : 'claude-sonnet-4-6';
               const newSettings = { ...settings, engine: newEngine, model: newModel };
               handleSaveSettings(newSettings);
             }}

@@ -465,10 +465,12 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
     const currentEngine = settingsRef.current.engine;
     let effectiveModel: string | undefined = settingsRef.current.model;
 
-    // Copilot CLI does not accept Claude model names (e.g. claude-sonnet-4-6)
-    // Omit --model flag to use Copilot CLI's default optimal model
+    // Copilot CLI does not accept external model names (e.g. claude-*, gemini-*)
+    // Omit model to let Copilot CLI pick its default optimal model
     if (currentEngine === 'copilot') {
-      if (!effectiveModel || effectiveModel.startsWith('claude-') || effectiveModel === 'default') {
+      const trimmed = (effectiveModel || '').trim();
+      const isExplicitCopilotModel = /^gpt-5/i.test(trimmed);
+      if (!isExplicitCopilotModel) {
         effectiveModel = undefined;
       }
     }
