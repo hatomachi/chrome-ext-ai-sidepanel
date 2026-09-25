@@ -477,7 +477,7 @@ export const App: React.FC = () => {
     setMessages((prev) => [...prev, userMsg]);
     if (!customPrompt) setInputText('');
 
-    const isResume = messages.some((m) => m.role === 'assistant' && !m.isError && m.text.trim().length > 0);
+    const isResume = messages.length > 0;
 
     await sendPrompt({
       text: textToSend,
