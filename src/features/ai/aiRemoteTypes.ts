@@ -43,7 +43,8 @@ export interface ContextAttachment {
   subtitle?: string;       // e.g. "https://internal.wiki/doc/123"
   contentMarkdown: string; // The formatted Markdown or text injected to prompt
   rawHtml?: string;
-  imageDataUrl?: string;   // data:image/png;base64,...
+  imageDataUrl?: string;   // data:image/png;base64,... (full resolution)
+  thumbnailUrl?: string;   // lightweight compressed thumbnail for timeline and storage
   imageDimensions?: { width: number; height: number };
   extractedAt: number;
   mode: ExtractionMode;

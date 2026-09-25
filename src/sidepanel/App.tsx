@@ -63,6 +63,112 @@ function generateMsgId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+/**
+ * Sanitize chat messages for persistent storage:
+ * - Strip huge rawHtml completely
+ * - Discard multi-megabyte full-res imageDataUrl and keep lightweight compressed thumbnailUrl (~15KB)
+ * - Truncate huge contentMarkdown to protect localStorage quota
+ */
+function sanitizeMessagesForStorage(msgs: AiChatMessage[]): AiChatMessage[] {
+  return msgs.map((m) => {
+    if (!m.attachments || m.attachments.length === 0) return m;
+
+    const sanitizedAttachments: ContextAttachment[] = m.attachments.map((att) => {
+      // 1. Remove rawHtml completely
+      const { rawHtml, ...rest } = att;
+
+      // 2. Keep lightweight thumbnailUrl, strip massive imageDataUrl from storage
+      let finalThumb = rest.thumbnailUrl;
+      if (!finalThumb && rest.imageDataUrl && rest.imageDataUrl.length < 50000) {
+        finalThumb = rest.imageDataUrl;
+      }
+
+      // 3. Truncate super long markdown (> 12,000 chars) for storage efficiency
+      let finalMd = rest.contentMarkdown;
+      if (finalMd && finalMd.length > 12000) {
+        finalMd = finalMd.slice(0, 8000) + '\n\n...[保存容量節約のため一部省略]';
+      }
+
+      return {
+        ...rest,
+        imageDataUrl: undefined, // Strip from storage
+        thumbnailUrl: finalThumb,
+        contentMarkdown: finalMd,
+      };
+    });
+
+    return {
+      ...m,
+      attachments: sanitizedAttachments,
+    };
+  });
+}
+
+/**
+ * Safely persist messages to localStorage & chrome.storage.local with QuotaExceededError protection and auto-cleanup
+ */
+function saveMessagesSafely(sessionId: string, msgs: AiChatMessage[]) {
+  if (!sessionId) return;
+  const key = `${AI_REMOTE_STORAGE_KEYS.MESSAGES_PREFIX}${sessionId}`;
+  const sanitized = sanitizeMessagesForStorage(msgs);
+
+  // Sync to chrome.storage.local (backed by unlimitedStorage permission)
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+    chrome.storage.local.set({ [key]: sanitized }).catch(() => {});
+  }
+
+  // 1. First attempt: normal localStorage save
+  try {
+    localStorage.setItem(key, JSON.stringify(sanitized));
+    localStorage.setItem(AI_REMOTE_STORAGE_KEYS.LAST_SESSION, sessionId);
+    return;
+  } catch (err: any) {
+    console.warn('[Storage] Quota exceeded on first attempt, attempting LRU cleanup:', err);
+  }
+
+  // 2. Second attempt: clean up older session messages from localStorage
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(AI_REMOTE_STORAGE_KEYS.MESSAGES_PREFIX) && k !== key) {
+        keysToRemove.push(k);
+      }
+    }
+    for (const k of keysToRemove) {
+      localStorage.removeItem(k);
+    }
+    console.log(`[Storage] Cleaned up ${keysToRemove.length} older sessions to free quota.`);
+
+    localStorage.setItem(key, JSON.stringify(sanitized));
+    localStorage.setItem(AI_REMOTE_STORAGE_KEYS.LAST_SESSION, sessionId);
+    return;
+  } catch (err: any) {
+    console.warn('[Storage] Quota still exceeded after cleanup, falling back to minimal metadata:', err);
+  }
+
+  // 3. Final fallback: strip all attachment contents, keep only lightweight metadata
+  try {
+    const minimal = sanitized.map((m) => ({
+      ...m,
+      attachments: m.attachments?.map((a) => ({
+        id: a.id,
+        type: a.type,
+        title: a.title,
+        badge: a.badge,
+        url: a.url,
+        mode: a.mode,
+        extractedAt: a.extractedAt,
+        contentMarkdown: '',
+      })),
+    }));
+    localStorage.setItem(key, JSON.stringify(minimal));
+    localStorage.setItem(AI_REMOTE_STORAGE_KEYS.LAST_SESSION, sessionId);
+  } catch (finalErr) {
+    console.error('[Storage] Critical: could not persist messages to localStorage:', finalErr);
+  }
+}
+
 export const App: React.FC = () => {
   // --- 1. Settings State ---
   const [settings, setSettings] = useState<AiRemoteSettings>(() => {
@@ -148,16 +254,32 @@ export const App: React.FC = () => {
     localStorage.setItem(AI_REMOTE_STORAGE_KEYS.SETTINGS, JSON.stringify(newSettings));
   };
 
-  // Save messages per session
+  // Save messages per session safely
   useEffect(() => {
     if (currentSessionId) {
-      localStorage.setItem(
-        `${AI_REMOTE_STORAGE_KEYS.MESSAGES_PREFIX}${currentSessionId}`,
-        JSON.stringify(messages)
-      );
-      localStorage.setItem(AI_REMOTE_STORAGE_KEYS.LAST_SESSION, currentSessionId);
+      saveMessagesSafely(currentSessionId, messages);
     }
   }, [messages, currentSessionId]);
+
+  // Clean up older session garbage on mount to prevent quota overflow
+  useEffect(() => {
+    try {
+      const sessionKeys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(AI_REMOTE_STORAGE_KEYS.MESSAGES_PREFIX)) {
+          sessionKeys.push(k);
+        }
+      }
+      if (sessionKeys.length > 5) {
+        const currentKey = `${AI_REMOTE_STORAGE_KEYS.MESSAGES_PREFIX}${currentSessionId}`;
+        const toDelete = sessionKeys.filter((k) => k !== currentKey).slice(0, sessionKeys.length - 5);
+        for (const k of toDelete) {
+          localStorage.removeItem(k);
+        }
+      }
+    } catch {}
+  }, [currentSessionId]);
 
   // Auto-scroll messages
   useEffect(() => {
@@ -193,7 +315,8 @@ export const App: React.FC = () => {
           res.width,
           res.height,
           res.title,
-          res.url
+          res.url,
+          res.thumbnailUrl
         );
         setCurrentAttachment(attachment);
         setStatusMessage(`📸 スクリーンショットを添付しました (${res.width}x${res.height})`);
@@ -590,9 +713,9 @@ export const App: React.FC = () => {
                           className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-indigo-700/70 hover:bg-indigo-600/80 rounded-md text-[10px] font-mono text-indigo-100 cursor-pointer transition-colors shadow-sm"
                           title="クリックして添付内容を拡大プレビュー"
                         >
-                          {isImg && att.imageDataUrl ? (
+                          {isImg && (att.thumbnailUrl || att.imageDataUrl) ? (
                             <img
-                              src={att.imageDataUrl}
+                              src={att.thumbnailUrl || att.imageDataUrl}
                               alt="thumb"
                               className="w-3.5 h-3.5 object-cover rounded border border-indigo-300/40 shrink-0"
                             />

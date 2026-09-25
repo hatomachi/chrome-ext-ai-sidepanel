@@ -56,6 +56,7 @@ export function getWarningLevel(chars: number, mode: ExtractionMode): 'none' | '
  */
 export async function captureActiveTabScreenshot(): Promise<{
   dataUrl: string;
+  thumbnailUrl: string;
   width: number;
   height: number;
   title: string;
@@ -87,10 +88,39 @@ export async function captureActiveTabScreenshot(): Promise<{
 
         const img = new Image();
         img.onload = () => {
+          const width = img.naturalWidth || img.width;
+          const height = img.naturalHeight || img.height;
+
+          // Generate lightweight thumbnail (~10-20KB JPEG) for timeline and storage
+          let thumbUrl = '';
+          try {
+            const maxDim = 320;
+            let tw = width;
+            let th = height;
+            if (tw > maxDim || th > maxDim) {
+              if (tw > th) {
+                th = Math.round((th * maxDim) / tw);
+                tw = maxDim;
+              } else {
+                tw = Math.round((tw * maxDim) / th);
+                th = maxDim;
+              }
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = tw;
+            canvas.height = th;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, tw, th);
+              thumbUrl = canvas.toDataURL('image/jpeg', 0.65);
+            }
+          } catch {}
+
           resolve({
             dataUrl,
-            width: img.naturalWidth || img.width,
-            height: img.naturalHeight || img.height,
+            thumbnailUrl: thumbUrl || dataUrl,
+            width,
+            height,
             title,
             url,
           });
@@ -99,6 +129,7 @@ export async function captureActiveTabScreenshot(): Promise<{
           // If image dimension fails, still return with fallback 1920x1080
           resolve({
             dataUrl,
+            thumbnailUrl: dataUrl,
             width: 1920,
             height: 1080,
             title,
@@ -119,7 +150,8 @@ export function buildScreenshotAttachment(
   width: number,
   height: number,
   title: string = 'タブ画面スクショ',
-  url: string = ''
+  url: string = '',
+  thumbnailUrl?: string
 ): ContextAttachment {
   const contentMarkdown = `# 📸 画面スクリーンショット: ${title}\n- URL: ${url}\n- 撮影日時: ${new Date().toLocaleString('ja-JP')}\n- 解像度: ${width}x${height} px\n\n> 添付された画面スクリーンショット画像（${width}x${height}）を参照し、画面内のUI、レイアウト、文言、要素の配置を視覚的に読み取って回答または手順書作成を行ってください。`;
 
@@ -132,6 +164,7 @@ export function buildScreenshotAttachment(
     subtitle: url || `${width}x${height} px`,
     contentMarkdown,
     imageDataUrl: dataUrl,
+    thumbnailUrl: thumbnailUrl || dataUrl,
     imageDimensions: { width, height },
     extractedAt: Date.now(),
     mode: 'screenshot',

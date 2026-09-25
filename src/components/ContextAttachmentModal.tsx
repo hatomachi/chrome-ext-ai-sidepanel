@@ -32,7 +32,8 @@ export const ContextAttachmentModal: React.FC<Props> = ({
   const [activeTab, setActiveTab] = useState<'image' | 'text'>('image');
   const contentRef = useRef<HTMLDivElement>(null);
 
-  const isScreenshot = attachment?.mode === 'screenshot' || Boolean(attachment?.imageDataUrl);
+  const targetImageUrl = attachment?.imageDataUrl || attachment?.thumbnailUrl;
+  const isScreenshot = attachment?.mode === 'screenshot' || Boolean(targetImageUrl);
   const hasWarning = attachment?.warningLevel && attachment.warningLevel !== 'none';
 
   // Reset states on open/attachment change
@@ -92,10 +93,10 @@ export const ContextAttachmentModal: React.FC<Props> = ({
   };
 
   const handleOpenImageNewTab = () => {
-    if (!attachment?.imageDataUrl) return;
+    if (!targetImageUrl) return;
     const w = window.open('');
     if (w) {
-      w.document.write(`<title>${attachment.title}</title><body style="margin:0;background:#0f172a;display:flex;align-items:center;justify-content:center;height:100vh;"><img src="${attachment.imageDataUrl}" style="max-width:100%;max-height:100%;object-fit:contain;" /></body>`);
+      w.document.write(`<title>${attachment.title}</title><body style="margin:0;background:#0f172a;display:flex;align-items:center;justify-content:center;height:100vh;"><img src="${targetImageUrl}" style="max-width:100%;max-height:100%;object-fit:contain;" /></body>`);
     }
   };
 
@@ -317,7 +318,7 @@ export const ContextAttachmentModal: React.FC<Props> = ({
           ref={contentRef}
           className="flex-1 overflow-y-auto p-4 bg-slate-950 select-text"
         >
-          {isScreenshot && activeTab === 'image' && attachment.imageDataUrl ? (
+          {isScreenshot && activeTab === 'image' && targetImageUrl ? (
             <div className="flex flex-col items-center justify-center min-h-full">
               <div
                 className={`overflow-auto transition-all ${
@@ -325,7 +326,7 @@ export const ContextAttachmentModal: React.FC<Props> = ({
                 }`}
               >
                 <img
-                  src={attachment.imageDataUrl}
+                  src={targetImageUrl}
                   alt={attachment.title}
                   onClick={() => setIsZoomed(!isZoomed)}
                   className={`rounded-lg border border-slate-800 shadow-md cursor-zoom-in transition-all ${
