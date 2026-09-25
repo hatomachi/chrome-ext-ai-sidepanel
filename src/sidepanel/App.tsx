@@ -16,6 +16,7 @@ import {
   MessageSquare,
   Bot,
   User,
+  Image as ImageIcon,
 } from 'lucide-react';
 import {
   AiRemoteSettings,
@@ -34,6 +35,8 @@ import {
   buildContextAttachment,
   captureActiveTabScreenshot,
   buildScreenshotAttachment,
+  buildImageAttachment,
+  compressImage,
 } from '../features/extractor/contentExtractor';
 import { ContextPillBar } from '../components/ContextPillBar';
 import { ContextAttachmentModal } from '../components/ContextAttachmentModal';
@@ -247,6 +250,7 @@ export const App: React.FC = () => {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isComposingRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Save settings when changed
   const handleSaveSettings = (newSettings: AiRemoteSettings) => {
@@ -319,7 +323,8 @@ export const App: React.FC = () => {
           res.thumbnailUrl
         );
         setCurrentAttachment(attachment);
-        setStatusMessage(`📸 スクリーンショットを添付しました (${res.width}x${res.height})`);
+        const sizeKb = Math.round(res.sizeBytes / 1024);
+        setStatusMessage(`📸 スクリーンショットを添付しました (${res.width}x${res.height}, ${sizeKb}KB)`);
         setTimeout(() => setStatusMessage(null), 2500);
       } else {
         setStatusMessage('⚠️ スクリーンショットの撮影に失敗しました');
@@ -333,6 +338,56 @@ export const App: React.FC = () => {
       setIsExtracting(false);
     }
   }, []);
+
+  // Handle image file selection (file picker or D&D)
+  const handleSelectImageFile = useCallback(async (file: File) => {
+    setIsExtracting(true);
+    setStatusMessage('画像を圧縮・処理中...');
+    try {
+      const compressed = await compressImage(file, {
+        maxDim: 1568,
+        quality: 0.82,
+        thumbMax: 240,
+        thumbQuality: 0.65,
+      });
+      const attachment = buildImageAttachment(
+        compressed.dataUrl,
+        compressed.width,
+        compressed.height,
+        file.name || '添付画像',
+        compressed.thumbnailUrl,
+        compressed.sizeBytes
+      );
+      setCurrentAttachment(attachment);
+      const sizeKb = Math.round(compressed.sizeBytes / 1024);
+      setStatusMessage(`🖼️ 画像を添付しました (${compressed.width}x${compressed.height}, ${sizeKb}KB)`);
+      setTimeout(() => setStatusMessage(null), 2500);
+    } catch (err: any) {
+      console.error('[App] Failed to process image file:', err);
+      setStatusMessage(`⚠️ 画像の読み込みエラー: ${err.message}`);
+      setTimeout(() => setStatusMessage(null), 3000);
+    } finally {
+      setIsExtracting(false);
+    }
+  }, []);
+
+  // Handle clipboard paste (Cmd+V) in textarea
+  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          await handleSelectImageFile(file);
+          break;
+        }
+      }
+    }
+  }, [handleSelectImageFile]);
 
   // Initial tab fetch on mount if autoAttachTab is enabled
   useEffect(() => {
@@ -371,6 +426,7 @@ export const App: React.FC = () => {
     refreshStatus,
   } = useAiRemoteClient({
     settings,
+    currentSessionId,
     onDelta: (delta) => {
       setMessages((prev) => {
         if (prev.length === 0) return prev;
@@ -783,10 +839,33 @@ export const App: React.FC = () => {
 
       {/* 6. Input Area */}
       <div className="p-2.5 bg-slate-900 border-t border-slate-800">
+        <input
+          type="file"
+          ref={fileInputRef}
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) {
+              handleSelectImageFile(file);
+            }
+            e.target.value = '';
+          }}
+        />
         <div className="relative flex items-end gap-1.5 bg-slate-950 border border-slate-800 rounded-xl p-1.5 focus-within:border-indigo-500 transition-colors">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="p-1.5 text-slate-400 hover:text-indigo-300 hover:bg-slate-800/80 rounded-lg transition-colors shrink-0 mb-0.5"
+            title="画像ファイルを選択して添付 (クリップボード貼り付け Cmd+V も可能)"
+          >
+            <ImageIcon className="w-4 h-4" />
+          </button>
+
           <textarea
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
+            onPaste={handlePaste}
             onCompositionStart={() => { isComposingRef.current = true; }}
             onCompositionEnd={() => { isComposingRef.current = false; }}
             onKeyDown={(e) => {
@@ -795,7 +874,7 @@ export const App: React.FC = () => {
                 handleSend();
               }
             }}
-            placeholder="AIに指示を送信... (Shift+Enterで改行)"
+            placeholder="AIに指示を送信... (画像貼付Cmd+V可 / Shift+Enter改行)"
             rows={2}
             className="flex-1 bg-transparent text-xs text-slate-100 placeholder-slate-500 p-1 resize-none focus:outline-none leading-relaxed select-text"
           />

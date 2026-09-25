@@ -1,5 +1,7 @@
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
+import { compressImage } from './imageCompressor';
+export { compressImage };
 import {
   ContextAttachment,
   ExtractionMode,
@@ -53,12 +55,14 @@ export function getWarningLevel(chars: number, mode: ExtractionMode): 'none' | '
 
 /**
  * Capture visible tab screenshot via chrome.tabs.captureVisibleTab
+ * Automatically compresses to max 1568px JPEG (~150-250KB) and generates thumbnail
  */
 export async function captureActiveTabScreenshot(): Promise<{
   dataUrl: string;
   thumbnailUrl: string;
   width: number;
   height: number;
+  sizeBytes: number;
   title: string;
   url: string;
 } | null> {
@@ -79,64 +83,43 @@ export async function captureActiveTabScreenshot(): Promise<{
     chrome.tabs.captureVisibleTab(
       tab.windowId,
       { format: 'png' },
-      (dataUrl) => {
-        if (chrome.runtime.lastError || !dataUrl) {
+      async (rawPngDataUrl) => {
+        if (chrome.runtime.lastError || !rawPngDataUrl) {
           console.error('[contentExtractor] captureVisibleTab failed:', chrome.runtime.lastError);
           resolve(null);
           return;
         }
 
-        const img = new Image();
-        img.onload = () => {
-          const width = img.naturalWidth || img.width;
-          const height = img.naturalHeight || img.height;
-
-          // Generate lightweight thumbnail (~10-20KB JPEG) for timeline and storage
-          let thumbUrl = '';
-          try {
-            const maxDim = 320;
-            let tw = width;
-            let th = height;
-            if (tw > maxDim || th > maxDim) {
-              if (tw > th) {
-                th = Math.round((th * maxDim) / tw);
-                tw = maxDim;
-              } else {
-                tw = Math.round((tw * maxDim) / th);
-                th = maxDim;
-              }
-            }
-            const canvas = document.createElement('canvas');
-            canvas.width = tw;
-            canvas.height = th;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.drawImage(img, 0, 0, tw, th);
-              thumbUrl = canvas.toDataURL('image/jpeg', 0.65);
-            }
-          } catch {}
+        try {
+          // HTML5 Canvas で長辺1568pxリサイズ ＋ JPEG 0.82圧縮
+          const compressed = await compressImage(rawPngDataUrl, {
+            maxDim: 1568,
+            quality: 0.82,
+            thumbMax: 240,
+            thumbQuality: 0.65,
+          });
 
           resolve({
-            dataUrl,
-            thumbnailUrl: thumbUrl || dataUrl,
-            width,
-            height,
+            dataUrl: compressed.dataUrl,
+            thumbnailUrl: compressed.thumbnailUrl,
+            width: compressed.width,
+            height: compressed.height,
+            sizeBytes: compressed.sizeBytes,
             title,
             url,
           });
-        };
-        img.onerror = () => {
-          // If image dimension fails, still return with fallback 1920x1080
+        } catch (err) {
+          console.error('[contentExtractor] Image compression failed, fallback to raw:', err);
           resolve({
-            dataUrl,
-            thumbnailUrl: dataUrl,
+            dataUrl: rawPngDataUrl,
+            thumbnailUrl: rawPngDataUrl,
             width: 1920,
             height: 1080,
+            sizeBytes: Math.round((rawPngDataUrl.length * 3) / 4),
             title,
             url,
           });
-        };
-        img.src = dataUrl;
+        }
       }
     );
   });
@@ -162,6 +145,38 @@ export function buildScreenshotAttachment(
     url,
     badge: `📸 ${width}x${height}`,
     subtitle: url || `${width}x${height} px`,
+    contentMarkdown,
+    imageDataUrl: dataUrl,
+    thumbnailUrl: thumbnailUrl || dataUrl,
+    imageDimensions: { width, height },
+    extractedAt: Date.now(),
+    mode: 'screenshot',
+    charCount: contentMarkdown.length,
+    warningLevel: 'none',
+  };
+}
+
+/**
+ * Build a ContextAttachment for arbitrary image files or clipboard paste
+ */
+export function buildImageAttachment(
+  dataUrl: string,
+  width: number,
+  height: number,
+  title: string = 'クリップボード画像',
+  thumbnailUrl?: string,
+  sizeBytes?: number
+): ContextAttachment {
+  const sizeKb = sizeBytes ? `${Math.round(sizeBytes / 1024)} KB` : '';
+  const contentMarkdown = `# 🖼️ 添付画像: ${title}\n- 添付日時: ${new Date().toLocaleString('ja-JP')}\n- 解像度: ${width}x${height} px${sizeKb ? `\n- サイズ: ${sizeKb}` : ''}\n\n> 添付された画像（${width}x${height}）を参照し、ユーザーの質問や指示に答えてください。`;
+
+  return {
+    id: `image_${Date.now()}`,
+    type: 'screenshot',
+    title: `🖼️ 画像: ${title}`,
+    url: '',
+    badge: `🖼️ ${width}x${height}`,
+    subtitle: `${width}x${height} px ${sizeKb ? `(${sizeKb})` : ''}`,
     contentMarkdown,
     imageDataUrl: dataUrl,
     thumbnailUrl: thumbnailUrl || dataUrl,

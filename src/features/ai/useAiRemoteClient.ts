@@ -96,6 +96,7 @@ function calculateBackoffDelay(retryCount: number): number {
 
 export interface UseAiRemoteClientOptions {
   settings: AiRemoteSettings;
+  currentSessionId?: string;
   onDelta?: (text: string) => void;
   onStatusMessage?: (message: string) => void;
   onTurnStart?: () => void;
@@ -109,6 +110,7 @@ export interface UseAiRemoteClientOptions {
 export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
   const {
     settings,
+    currentSessionId,
     onDelta,
     onStatusMessage,
     onTurnStart,
@@ -118,6 +120,9 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
     onSessionMessages,
     onProjectsList,
   } = options;
+
+  const currentSessionIdRef = useRef(currentSessionId);
+  currentSessionIdRef.current = currentSessionId;
 
   const [isHubConnected, setIsHubConnected] = useState(false);
   const [isAgentConnected, setIsAgentConnected] = useState(false);
@@ -227,19 +232,33 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
       }
 
       case 'turn_start': {
+        const isTargetSession = !msg.sessionId || !currentSessionIdRef.current || msg.sessionId === currentSessionIdRef.current;
         setIsExecuting(true);
-        cb.onTurnStart?.();
+        if (isTargetSession) {
+          cb.onTurnStart?.();
+        } else {
+          cb.onStatusMessage?.('（他セッションの処理を実行中...）');
+        }
         break;
       }
 
       case 'turn_end':
       case 'execution_aborted': {
+        const isTargetSession = !msg.sessionId || !currentSessionIdRef.current || msg.sessionId === currentSessionIdRef.current;
         setIsExecuting(false);
-        cb.onTurnEnd?.();
+        if (isTargetSession) {
+          cb.onTurnEnd?.();
+        }
         break;
       }
 
       case 'claude_event': {
+        const isTargetSession = !msg.sessionId || !currentSessionIdRef.current || msg.sessionId === currentSessionIdRef.current;
+        if (!isTargetSession) {
+          // 他セッションのストリーミングは現在のチャット画面に混入させない
+          break;
+        }
+
         const ev = msg.event;
         if (!ev) break;
 
@@ -269,6 +288,9 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
       }
 
       case 'agent_event': {
+        const isTargetSession = !msg.sessionId || !currentSessionIdRef.current || msg.sessionId === currentSessionIdRef.current;
+        if (!isTargetSession) break;
+
         if (msg.event?.type === 'output' && typeof msg.event.text === 'string') {
           cb.onDelta?.(msg.event.text);
         }
@@ -276,15 +298,20 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
       }
 
       case 'tool_approval_request': {
+        const isTargetSession = !msg.sessionId || !currentSessionIdRef.current || msg.sessionId === currentSessionIdRef.current;
+        if (!isTargetSession) break;
         cb.onStatusMessage?.(`承認要求: ${msg.toolName} (${msg.description || '許可が必要です'})`);
         break;
       }
 
       case 'turn_error':
       case 'error': {
+        const isTargetSession = !msg.sessionId || !currentSessionIdRef.current || msg.sessionId === currentSessionIdRef.current;
         setIsExecuting(false);
-        const errText = msg.error || msg.message || '不明なエラーが発生しました';
-        cb.onError?.(errText);
+        if (isTargetSession) {
+          const errText = msg.error || msg.message || '不明なエラーが発生しました';
+          cb.onError?.(errText);
+        }
         break;
       }
 
@@ -481,13 +508,16 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
     if (attachments && attachments.length > 0) {
       for (const att of attachments) {
         if (att.imageDataUrl) {
+          const isJpeg = att.imageDataUrl.startsWith('data:image/jpeg') || att.imageDataUrl.startsWith('data:image/jpg');
+          const mimeType = isJpeg ? 'image/jpeg' : 'image/png';
+          const ext = isJpeg ? '.jpg' : '.png';
           const safeTitle = (att.title || 'screenshot')
             .replace(/[^\w\.\-\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\uff00-\uffef\u4e00-\u9faf]/g, '_')
             .slice(0, 30);
           remoteAttachments.push({
             id: att.id,
-            name: `${safeTitle}.png`,
-            type: 'image/png',
+            name: `${safeTitle}${ext}`,
+            type: mimeType,
             data: att.imageDataUrl,
             size: Math.round((att.imageDataUrl.length * 3) / 4),
           });
