@@ -20,7 +20,7 @@ export interface AiRemoteSettings {
 
 export const DEFAULT_AI_REMOTE_SETTINGS: AiRemoteSettings = {
   hubUrl: 'ws://localhost:8090/ws/client',
-  authToken: '',
+  authToken: 'dev-secret-token',
   engine: 'claude',
   model: 'claude-opus-4-7',
   transportMode: 'auto',
