@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "pack": "node scripts/package.js",
+    "release": "npm run build && npm run pack",
     "preview": "vite preview"
   },
   "dependencies": {
