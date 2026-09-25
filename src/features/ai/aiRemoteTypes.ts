@@ -6,7 +6,10 @@
 export type AIEngine = 'claude' | 'copilot';
 export type TransportMode = 'auto' | 'ws' | 'http';
 export type ActiveTransport = 'none' | 'ws' | 'http';
-export type ExtractionMode = 'readability' | 'selection' | 'raw_html';
+export type ExtractionMode = 'readability' | 'selection' | 'raw_html' | 'screenshot';
+
+export const WARNING_CHAR_THRESHOLD = 50000;  // ~1.6万トークン (注意)
+export const DANGER_CHAR_THRESHOLD = 150000;  // ~5万トークン (警告)
 
 export interface AiRemoteSettings {
   hubUrl: string;
@@ -29,19 +32,34 @@ export const DEFAULT_AI_REMOTE_SETTINGS: AiRemoteSettings = {
 };
 
 /**
- * Context Attachment representing the browser tab or selection attached to a prompt
+ * Context Attachment representing the browser tab, selection or screenshot attached to a prompt
  */
 export interface ContextAttachment {
   id: string;
-  type: 'tab_page' | 'selection' | 'raw_html' | 'custom';
+  type: 'tab_page' | 'selection' | 'raw_html' | 'screenshot' | 'custom';
   title: string;          // e.g. "社内Wiki: 開発ガイドライン"
   url?: string;
-  badge?: string;          // e.g. "1.2万字" or "Readability"
+  badge?: string;          // e.g. "1.2万字" or "📸 1920x1080"
   subtitle?: string;       // e.g. "https://internal.wiki/doc/123"
   contentMarkdown: string; // The formatted Markdown or text injected to prompt
   rawHtml?: string;
+  imageDataUrl?: string;   // data:image/png;base64,...
+  imageDimensions?: { width: number; height: number };
   extractedAt: number;
   mode: ExtractionMode;
+  charCount?: number;
+  warningLevel?: 'none' | 'warning' | 'danger';
+}
+
+/**
+ * Remote Attachment item compatible with webapp-ai-remote Bridge Agent
+ */
+export interface RemoteAttachmentItem {
+  id?: string;
+  name: string;
+  type: string;
+  data: string; // base64 string or data URL
+  size?: number;
 }
 
 /**

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Sidepanel (Chrome/Edge)",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Browser Side Panel AI Assistant attaching active tab context to local AI agents and Obsidian",
   "permissions": [
     "sidePanel",

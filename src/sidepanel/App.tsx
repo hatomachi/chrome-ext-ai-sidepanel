@@ -32,6 +32,8 @@ import { useAiRemoteClient } from '../features/ai/useAiRemoteClient';
 import {
   extractActiveTabRawData,
   buildContextAttachment,
+  captureActiveTabScreenshot,
+  buildScreenshotAttachment,
 } from '../features/extractor/contentExtractor';
 import { ContextPillBar } from '../components/ContextPillBar';
 import { ContextAttachmentModal } from '../components/ContextAttachmentModal';
@@ -82,6 +84,7 @@ export const App: React.FC = () => {
 
   // --- 2. Context Attachment State ---
   const [currentAttachment, setCurrentAttachment] = useState<ContextAttachment | null>(null);
+  const [previewAttachment, setPreviewAttachment] = useState<ContextAttachment | null>(null);
   const [isPinned, setIsPinned] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -177,6 +180,36 @@ export const App: React.FC = () => {
       setIsExtracting(false);
     }
   }, [settings.defaultExtractionMode]);
+
+  // Capture Screenshot of active tab
+  const handleCaptureScreenshot = useCallback(async () => {
+    setIsExtracting(true);
+    setStatusMessage('スクリーンショット撮影中...');
+    try {
+      const res = await captureActiveTabScreenshot();
+      if (res) {
+        const attachment = buildScreenshotAttachment(
+          res.dataUrl,
+          res.width,
+          res.height,
+          res.title,
+          res.url
+        );
+        setCurrentAttachment(attachment);
+        setStatusMessage(`📸 スクリーンショットを添付しました (${res.width}x${res.height})`);
+        setTimeout(() => setStatusMessage(null), 2500);
+      } else {
+        setStatusMessage('⚠️ スクリーンショットの撮影に失敗しました');
+        setTimeout(() => setStatusMessage(null), 3000);
+      }
+    } catch (err) {
+      console.error('[App] Failed to capture screenshot:', err);
+      setStatusMessage('⚠️ スクリーンショットの撮影エラー');
+      setTimeout(() => setStatusMessage(null), 3000);
+    } finally {
+      setIsExtracting(false);
+    }
+  }, []);
 
   // Initial tab fetch on mount if autoAttachTab is enabled
   useEffect(() => {
@@ -296,7 +329,11 @@ export const App: React.FC = () => {
 
   // Switch mode
   const handleChangeMode = (mode: ExtractionMode) => {
-    fetchActiveTabContext(mode);
+    if (mode === 'screenshot') {
+      handleCaptureScreenshot();
+    } else {
+      fetchActiveTabContext(mode);
+    }
   };
 
   // Submit prompt
@@ -540,16 +577,37 @@ export const App: React.FC = () => {
 
                 {/* Attached chip preview in user message */}
                 {m.attachments && m.attachments.length > 0 && (
-                  <div className="mb-2 pb-2 border-b border-indigo-400/30 flex flex-wrap gap-1">
-                    {m.attachments.map((att) => (
-                      <span
-                        key={att.id}
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-indigo-700/60 rounded text-[10px] font-mono text-indigo-100"
-                        title={att.title}
-                      >
-                        📎 {att.title.slice(0, 16)}...
-                      </span>
-                    ))}
+                  <div className="mb-2 pb-2 border-b border-indigo-400/30 flex flex-wrap gap-1.5">
+                    {m.attachments.map((att) => {
+                      const isImg = att.type === 'screenshot' || Boolean(att.imageDataUrl);
+                      return (
+                        <span
+                          key={att.id}
+                          onClick={() => {
+                            setPreviewAttachment(att);
+                            setIsPreviewOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-indigo-700/70 hover:bg-indigo-600/80 rounded-md text-[10px] font-mono text-indigo-100 cursor-pointer transition-colors shadow-sm"
+                          title="クリックして添付内容を拡大プレビュー"
+                        >
+                          {isImg && att.imageDataUrl ? (
+                            <img
+                              src={att.imageDataUrl}
+                              alt="thumb"
+                              className="w-3.5 h-3.5 object-cover rounded border border-indigo-300/40 shrink-0"
+                            />
+                          ) : (
+                            <span className="shrink-0">{isImg ? '📸' : '📎'}</span>
+                          )}
+                          <span className="truncate max-w-[120px]">{att.title}</span>
+                          {att.badge && (
+                            <span className="text-[9px] opacity-75 shrink-0">
+                              ({att.badge})
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })}
                   </div>
                 )}
 
@@ -591,8 +649,12 @@ export const App: React.FC = () => {
         isLoading={isExtracting}
         onRemove={() => setCurrentAttachment(null)}
         onRefresh={() => fetchActiveTabContext()}
+        onCaptureScreenshot={handleCaptureScreenshot}
         onTogglePin={() => setIsPinned(!isPinned)}
-        onOpenPreview={() => setIsPreviewOpen(true)}
+        onOpenPreview={() => {
+          setPreviewAttachment(null);
+          setIsPreviewOpen(true);
+        }}
         onChangeMode={handleChangeMode}
       />
 
@@ -639,8 +701,11 @@ export const App: React.FC = () => {
       {/* 7. Modals */}
       <ContextAttachmentModal
         isOpen={isPreviewOpen}
-        attachment={currentAttachment}
-        onClose={() => setIsPreviewOpen(false)}
+        attachment={previewAttachment || currentAttachment}
+        onClose={() => {
+          setIsPreviewOpen(false);
+          setPreviewAttachment(null);
+        }}
       />
 
       <SettingsModal

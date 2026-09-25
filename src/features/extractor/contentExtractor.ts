@@ -1,6 +1,11 @@
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
-import { ContextAttachment, ExtractionMode } from '../ai/aiRemoteTypes';
+import {
+  ContextAttachment,
+  ExtractionMode,
+  WARNING_CHAR_THRESHOLD,
+  DANGER_CHAR_THRESHOLD,
+} from '../ai/aiRemoteTypes';
 
 const turndownService = new TurndownService({
   headingStyle: 'atx',
@@ -34,6 +39,105 @@ export function formatCharCount(chars: number): string {
  */
 export function estimateTokens(chars: number): number {
   return Math.ceil(chars / 3);
+}
+
+/**
+ * Determine warning level based on character count and mode
+ */
+export function getWarningLevel(chars: number, mode: ExtractionMode): 'none' | 'warning' | 'danger' {
+  if (mode === 'screenshot') return 'none';
+  if (chars >= DANGER_CHAR_THRESHOLD) return 'danger';
+  if (chars >= WARNING_CHAR_THRESHOLD || mode === 'raw_html') return 'warning';
+  return 'none';
+}
+
+/**
+ * Capture visible tab screenshot via chrome.tabs.captureVisibleTab
+ */
+export async function captureActiveTabScreenshot(): Promise<{
+  dataUrl: string;
+  width: number;
+  height: number;
+  title: string;
+  url: string;
+} | null> {
+  if (typeof chrome === 'undefined' || !chrome.tabs) {
+    console.warn('[contentExtractor] chrome.tabs not available');
+    return null;
+  }
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.id) {
+    return null;
+  }
+
+  const title = tab.title || 'Untitled Page';
+  const url = tab.url || '';
+
+  return new Promise((resolve) => {
+    chrome.tabs.captureVisibleTab(
+      tab.windowId,
+      { format: 'png' },
+      (dataUrl) => {
+        if (chrome.runtime.lastError || !dataUrl) {
+          console.error('[contentExtractor] captureVisibleTab failed:', chrome.runtime.lastError);
+          resolve(null);
+          return;
+        }
+
+        const img = new Image();
+        img.onload = () => {
+          resolve({
+            dataUrl,
+            width: img.naturalWidth || img.width,
+            height: img.naturalHeight || img.height,
+            title,
+            url,
+          });
+        };
+        img.onerror = () => {
+          // If image dimension fails, still return with fallback 1920x1080
+          resolve({
+            dataUrl,
+            width: 1920,
+            height: 1080,
+            title,
+            url,
+          });
+        };
+        img.src = dataUrl;
+      }
+    );
+  });
+}
+
+/**
+ * Build a ContextAttachment for a screenshot
+ */
+export function buildScreenshotAttachment(
+  dataUrl: string,
+  width: number,
+  height: number,
+  title: string = 'タブ画面スクショ',
+  url: string = ''
+): ContextAttachment {
+  const contentMarkdown = `# 📸 画面スクリーンショット: ${title}\n- URL: ${url}\n- 撮影日時: ${new Date().toLocaleString('ja-JP')}\n- 解像度: ${width}x${height} px\n\n> 添付された画面スクリーンショット画像（${width}x${height}）を参照し、画面内のUI、レイアウト、文言、要素の配置を視覚的に読み取って回答または手順書作成を行ってください。`;
+
+  return {
+    id: `screenshot_${Date.now()}`,
+    type: 'screenshot',
+    title: `📸 スクショ: ${title}`,
+    url,
+    badge: `📸 ${width}x${height}`,
+    subtitle: url || `${width}x${height} px`,
+    contentMarkdown,
+    imageDataUrl: dataUrl,
+    imageDimensions: { width, height },
+    extractedAt: Date.now(),
+    mode: 'screenshot',
+    charCount: contentMarkdown.length,
+    warningLevel: 'none',
+  };
 }
 
 /**
@@ -150,7 +254,9 @@ export function buildContextAttachment(
   }
 
   const charCount = contentMarkdown.length;
-  const badge = `${formatCharCount(charCount)} (${actualMode === 'readability' ? '本文抽出' : actualMode === 'selection' ? '選択範囲' : '生HTML'})`;
+  const warningLevel = getWarningLevel(charCount, actualMode);
+  const warnIcon = warningLevel === 'danger' ? '⛔ ' : warningLevel === 'warning' ? '⚠️ ' : '';
+  const badge = `${warnIcon}${formatCharCount(charCount)} (${actualMode === 'readability' ? '本文抽出' : actualMode === 'selection' ? '選択範囲' : '生HTML'})`;
 
   return {
     id: `tab_${Date.now()}`,
@@ -163,5 +269,7 @@ export function buildContextAttachment(
     rawHtml: data.html,
     extractedAt: Date.now(),
     mode: actualMode,
+    charCount,
+    warningLevel,
   };
 }

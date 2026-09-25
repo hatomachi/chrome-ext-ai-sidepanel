@@ -37,6 +37,13 @@ export const QUICK_PROMPTS: QuickPrompt[] = [
     description: 'Obsidian保管用に綺麗に構造化されたMarkdownを生成',
     prompt: `このページの内容をローカルの Obsidian Vault で恒久保存できるように、見出し・表・要約・詳細を含む綺麗なMarkdownドキュメントとして構造化して出力してください。`,
   },
+  {
+    id: 'create-procedure',
+    label: '画面手順書を作成',
+    icon: '📸',
+    description: '添付の画面スクショ・ページから初心者向け操作手順書（Markdown）を作成',
+    prompt: `添付された画面（スクリーンショットまたはページ内容）を確認し、この画面を操作するユーザー向けの詳細な操作手順書（マニュアル）をMarkdown形式で作成してください。\n- 目的と概要\n- 前提条件\n- ステップバイステップの手順（UI上のボタン名、入力欄、配置場所を具体的に明記）\n- 注意事項やよくあるエラーへの対処`,
+  },
 ];
 
 /**

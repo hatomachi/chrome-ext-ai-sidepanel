@@ -10,6 +10,7 @@ import {
   AiRemoteSettings,
   ActiveTransport,
   ContextAttachment,
+  RemoteAttachmentItem,
   ProjectInfo,
   SessionInfo,
   InboundHubMessage,
@@ -475,6 +476,25 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
       }
     }
 
+    // Convert image attachments to RemoteAttachmentItem for Bridge Agent
+    const remoteAttachments: RemoteAttachmentItem[] = [];
+    if (attachments && attachments.length > 0) {
+      for (const att of attachments) {
+        if (att.imageDataUrl) {
+          const safeTitle = (att.title || 'screenshot')
+            .replace(/[^\w\.\-\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\uff00-\uffef\u4e00-\u9faf]/g, '_')
+            .slice(0, 30);
+          remoteAttachments.push({
+            id: att.id,
+            name: `${safeTitle}.png`,
+            type: 'image/png',
+            data: att.imageDataUrl,
+            size: Math.round((att.imageDataUrl.length * 3) / 4),
+          });
+        }
+      }
+    }
+
     const payload = {
       type: 'prompt',
       text: fullText,
@@ -484,6 +504,7 @@ export function useAiRemoteClient(options: UseAiRemoteClientOptions) {
       cwd,
       model: effectiveModel,
       engine: currentEngine,
+      attachments: remoteAttachments.length > 0 ? remoteAttachments : undefined,
     };
 
     if (activeTransport === 'ws' && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
