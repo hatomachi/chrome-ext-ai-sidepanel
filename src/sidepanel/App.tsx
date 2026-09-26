@@ -41,6 +41,11 @@ import {
 import { ContextPillBar } from '../components/ContextPillBar';
 import { ContextAttachmentModal } from '../components/ContextAttachmentModal';
 import { SettingsModal } from '../components/SettingsModal';
+import { ActionProposalCard } from '../components/ActionProposalCard';
+import { BrowserActionProposal } from '../features/automation/automationTypes';
+import { scanPageInteractiveElements, clearElementBadges } from '../features/automation/elementScanner';
+import { executeBrowserAction } from '../features/automation/browserActions';
+import { formatScanResultForPrompt, parseActionProposal, cleanActionBlockFromText } from '../features/automation/automationParser';
 
 /**
  * RFC 4122 compliant UUID v4 generator
@@ -248,6 +253,10 @@ export const App: React.FC = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
+  // --- 4. Browser Automation State ---
+  const [isScanningElements, setIsScanningElements] = useState(false);
+  const [actionProposals, setActionProposals] = useState<Record<string, BrowserActionProposal>>({});
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isComposingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -388,6 +397,95 @@ export const App: React.FC = () => {
       }
     }
   }, [handleSelectImageFile]);
+
+  // Browser Automation: Scan elements on the active tab
+  const handleScanElements = useCallback(async () => {
+    setIsScanningElements(true);
+    setStatusMessage('画面要素をスキャン中...');
+    try {
+      const scanResult = await scanPageInteractiveElements(undefined, {
+        showOverlay: true,
+        highlightDurationMs: 8000,
+        maxElements: 60,
+      });
+
+      if (!scanResult || scanResult.elements.length === 0) {
+        setStatusMessage('操作可能な要素が見つかりませんでした');
+        setTimeout(() => setStatusMessage(null), 3000);
+        return;
+      }
+
+      const contentMarkdown = formatScanResultForPrompt(scanResult);
+      const attachment: ContextAttachment = {
+        id: `scan_${Date.now()}`,
+        type: 'custom',
+        title: `🤖 操作スキャン: ${scanResult.pageTitle || 'ページ'}`,
+        badge: `🤖 ${scanResult.elements.length}要素`,
+        subtitle: scanResult.pageUrl,
+        contentMarkdown,
+        extractedAt: Date.now(),
+        mode: 'readability',
+        charCount: contentMarkdown.length,
+        warningLevel: 'none',
+      };
+
+      setCurrentAttachment(attachment);
+      setStatusMessage(`画面要素 ${scanResult.elements.length}件をスキャン＆番号タグを表示しました`);
+      setTimeout(() => setStatusMessage(null), 4000);
+    } catch (err: any) {
+      console.error('[App] handleScanElements failed:', err);
+      setStatusMessage(`スキャン失敗: ${err.message}`);
+      setTimeout(() => setStatusMessage(null), 4000);
+    } finally {
+      setIsScanningElements(false);
+    }
+  }, []);
+
+  // Browser Automation: Approve and execute proposed action
+  const handleApproveAction = useCallback(async (action: BrowserActionProposal) => {
+    setActionProposals((prev) => ({
+      ...prev,
+      [action.id]: { ...action, status: 'executing' },
+    }));
+    setStatusMessage(`アクション実行中: ${action.type}...`);
+
+    try {
+      const res = await executeBrowserAction(undefined, action);
+      if (res.success) {
+        setActionProposals((prev) => ({
+          ...prev,
+          [action.id]: { ...action, status: 'completed' },
+        }));
+        setStatusMessage(res.message || 'アクションを実行しました');
+      } else {
+        setActionProposals((prev) => ({
+          ...prev,
+          [action.id]: { ...action, status: 'failed', error: res.error },
+        }));
+        setStatusMessage(`実行失敗: ${res.error || '不明なエラー'}`);
+      }
+      // Clear overlay badges on completion
+      await clearElementBadges();
+      setTimeout(() => setStatusMessage(null), 4000);
+    } catch (err: any) {
+      setActionProposals((prev) => ({
+        ...prev,
+        [action.id]: { ...action, status: 'failed', error: err.message },
+      }));
+      setStatusMessage(`実行例外エラー: ${err.message}`);
+      await clearElementBadges();
+      setTimeout(() => setStatusMessage(null), 4000);
+    }
+  }, []);
+
+  // Browser Automation: Reject/Skip proposed action
+  const handleRejectAction = useCallback(async (action: BrowserActionProposal) => {
+    setActionProposals((prev) => ({
+      ...prev,
+      [action.id]: { ...action, status: 'rejected' },
+    }));
+    await clearElementBadges();
+  }, []);
 
   // Initial tab fetch on mount if autoAttachTab is enabled
   useEffect(() => {
@@ -797,6 +895,20 @@ export const App: React.FC = () => {
                     <span className="inline-block w-1.5 h-3.5 ml-1 bg-indigo-400 animate-pulse align-middle" />
                   )}
                 </div>
+
+                {/* AI Proposed Action Card (Human-in-the-Loop) */}
+                {m.role === 'assistant' && !m.isStreaming && (() => {
+                  const proposal = parseActionProposal(m.text);
+                  if (!proposal) return null;
+                  const currentProposal = actionProposals[proposal.id] || proposal;
+                  return (
+                    <ActionProposalCard
+                      action={currentProposal}
+                      onApprove={handleApproveAction}
+                      onReject={handleRejectAction}
+                    />
+                  );
+                })()}
               </div>
             </div>
           ))
@@ -825,10 +937,12 @@ export const App: React.FC = () => {
       <ContextPillBar
         attachment={currentAttachment}
         isPinned={isPinned}
-        isLoading={isExtracting}
+        isLoading={isExtracting || isScanningElements}
         onRemove={() => setCurrentAttachment(null)}
         onRefresh={() => fetchActiveTabContext()}
         onCaptureScreenshot={handleCaptureScreenshot}
+        onScanElements={handleScanElements}
+        isAutomationEnabled={Boolean(settings.enableBrowserAutomation)}
         onTogglePin={() => setIsPinned(!isPinned)}
         onOpenPreview={() => {
           setPreviewAttachment(null);

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Paperclip, X, Eye, RefreshCw, Pin, PinOff, Camera, AlertTriangle } from 'lucide-react';
+import { Paperclip, X, Eye, RefreshCw, Pin, PinOff, Camera, AlertTriangle, Bot } from 'lucide-react';
 import { ContextAttachment, ExtractionMode } from '../features/ai/aiRemoteTypes';
 
 interface Props {
@@ -9,6 +9,8 @@ interface Props {
   onRemove: () => void;
   onRefresh: () => void;
   onCaptureScreenshot?: () => void;
+  onScanElements?: () => void;
+  isAutomationEnabled?: boolean;
   onTogglePin: () => void;
   onOpenPreview: () => void;
   onChangeMode: (mode: ExtractionMode) => void;
@@ -21,6 +23,8 @@ export const ContextPillBar: React.FC<Props> = ({
   onRemove,
   onRefresh,
   onCaptureScreenshot,
+  onScanElements,
+  isAutomationEnabled,
   onTogglePin,
   onOpenPreview,
   onChangeMode,
@@ -33,6 +37,17 @@ export const ContextPillBar: React.FC<Props> = ({
           タブコンテキストなし
         </span>
         <div className="flex items-center gap-1.5">
+          {isAutomationEnabled && onScanElements && (
+            <button
+              onClick={onScanElements}
+              disabled={isLoading}
+              className="flex items-center gap-1 text-amber-300 hover:text-white font-medium px-2 py-0.5 rounded bg-amber-950/60 hover:bg-amber-900 border border-amber-800/80 transition-colors disabled:opacity-50"
+              title="画面のボタン・入力要素をスキャンし、番号タグを表示して添付"
+            >
+              <Bot className="w-3 h-3 text-amber-400" />
+              操作スキャン
+            </button>
+          )}
           {onCaptureScreenshot && (
             <button
               onClick={onCaptureScreenshot}
@@ -148,6 +163,18 @@ export const ContextPillBar: React.FC<Props> = ({
               title="現在のタブのスクリーンショットを撮って添付"
             >
               <Camera className="w-3 h-3" />
+            </button>
+          )}
+
+          {/* Quick Automation Scan button */}
+          {isAutomationEnabled && onScanElements && (
+            <button
+              onClick={onScanElements}
+              disabled={isLoading}
+              className="p-1 text-slate-400 hover:text-amber-300 hover:bg-slate-800 rounded transition-colors disabled:opacity-50"
+              title="画面の要素をスキャンして操作指示用に添付"
+            >
+              <Bot className="w-3 h-3" />
             </button>
           )}
 

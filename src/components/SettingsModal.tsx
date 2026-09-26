@@ -154,6 +154,25 @@ export const SettingsModal: React.FC<Props> = ({
             </label>
           </div>
 
+          {/* Browser Automation Beta toggle */}
+          <div className="flex items-start gap-2 pt-1 p-2 bg-indigo-950/20 border border-indigo-900/40 rounded-lg">
+            <input
+              type="checkbox"
+              id="enableBrowserAutomation"
+              checked={formData.enableBrowserAutomation || false}
+              onChange={(e) => setFormData({ ...formData, enableBrowserAutomation: e.target.checked })}
+              className="rounded bg-slate-950 border-slate-800 text-indigo-600 focus:ring-0 w-3.5 h-3.5 mt-0.5 cursor-pointer"
+            />
+            <div className="flex flex-col">
+              <label htmlFor="enableBrowserAutomation" className="text-slate-200 text-xs font-medium cursor-pointer select-none">
+                🧪 自律ブラウザ操作モード (Beta)
+              </label>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                画面要素をスキャンし、AIにクリック・フォーム入力を提案させます（実行前に承認ダイアログを表示）。
+              </p>
+            </div>
+          </div>
+
           {/* Footer Actions */}
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
             <button

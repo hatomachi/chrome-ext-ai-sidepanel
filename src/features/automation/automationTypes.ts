@@ -33,9 +33,23 @@ export interface AutomationAction {
   direction?: 'up' | 'down'; // for 'scroll' action
   amount?: number;          // scroll pixels or wait ms
   url?: string;             // for 'navigate' action
+  reason?: string;          // Reason explaining why AI proposes this action
   status: 'pending' | 'approved' | 'executing' | 'completed' | 'failed' | 'rejected';
   error?: string;
   createdAt: number;
+  executedAt?: number;
+}
+
+export type BrowserActionProposal = AutomationAction;
+
+export interface BrowserActionResult {
+  success: boolean;
+  actionId: string;
+  message?: string;
+  error?: string;
+  targetId?: number;
+  newPageUrl?: string;
+  executedAt: number;
 }
 
 export interface AutomationScanResult {
@@ -43,4 +57,10 @@ export interface AutomationScanResult {
   pageTitle: string;
   pageUrl: string;
   scannedAt: number;
+}
+
+export interface ScanOptions {
+  showOverlay?: boolean;
+  highlightDurationMs?: number;
+  maxElements?: number;
 }

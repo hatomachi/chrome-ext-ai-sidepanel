@@ -19,6 +19,7 @@ export interface AiRemoteSettings {
   transportMode: TransportMode;
   autoAttachTab: boolean;
   defaultExtractionMode: ExtractionMode;
+  enableBrowserAutomation?: boolean;
 }
 
 export const DEFAULT_AI_REMOTE_SETTINGS: AiRemoteSettings = {
@@ -29,6 +30,7 @@ export const DEFAULT_AI_REMOTE_SETTINGS: AiRemoteSettings = {
   transportMode: 'auto',
   autoAttachTab: true,
   defaultExtractionMode: 'readability',
+  enableBrowserAutomation: false,
 };
 
 /**
