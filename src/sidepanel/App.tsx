@@ -17,6 +17,7 @@ import {
   Bot,
   User,
   Image as ImageIcon,
+  Zap,
 } from 'lucide-react';
 import {
   AiRemoteSettings,
@@ -42,6 +43,7 @@ import { ContextPillBar } from '../components/ContextPillBar';
 import { ContextAttachmentModal } from '../components/ContextAttachmentModal';
 import { SettingsModal } from '../components/SettingsModal';
 import { ActionProposalCard } from '../components/ActionProposalCard';
+import { WorkflowRunnerModal } from '../components/workflow/WorkflowRunnerModal';
 import { BrowserActionProposal } from '../features/automation/automationTypes';
 import { scanPageInteractiveElements, clearElementBadges } from '../features/automation/elementScanner';
 import { executeBrowserAction } from '../features/automation/browserActions';
@@ -195,6 +197,7 @@ export const App: React.FC = () => {
   });
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isWorkflowModalOpen, setIsWorkflowModalOpen] = useState(false);
 
   // --- 2. Context Attachment State ---
   const [currentAttachment, setCurrentAttachment] = useState<ContextAttachment | null>(null);
@@ -696,6 +699,15 @@ export const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-1">
+          {/* Workflow Automation Modal */}
+          <button
+            onClick={() => setIsWorkflowModalOpen(true)}
+            className="flex items-center gap-1 px-2 py-1 rounded bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-700/60 text-indigo-300 hover:text-indigo-100 transition-colors text-[11px] font-semibold"
+            title="ワークフロー・オートメーション"
+          >
+            <Zap className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="hidden sm:inline">レシピ</span>
+          </button>
           {/* New chat */}
           <button
             onClick={handleNewSession}
@@ -801,6 +813,22 @@ export const App: React.FC = () => {
               <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-1">
                 クイックアクション
               </div>
+              {/* Featured Workflow Recipe button */}
+              <button
+                onClick={() => setIsWorkflowModalOpen(true)}
+                className="w-full flex items-center gap-2 p-2 bg-indigo-950/60 hover:bg-indigo-900/60 border border-indigo-700/80 rounded-lg text-indigo-100 text-left transition-colors group shadow-xs"
+              >
+                <span className="text-sm">⚡</span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-[11px] text-indigo-200 group-hover:text-indigo-100 flex items-center gap-1.5">
+                    休日出勤申請オートメーション
+                    <span className="px-1.5 py-0.2 rounded-full bg-indigo-600 text-white text-[9px] font-bold">New</span>
+                  </div>
+                  <div className="text-[10px] text-indigo-300/80 truncate">
+                    社内ポータルの申請を一括または都度承認で自動実行
+                  </div>
+                </div>
+              </button>
               {QUICK_PROMPTS.map((qp) => (
                 <button
                   key={qp.id}
@@ -1029,6 +1057,12 @@ export const App: React.FC = () => {
         settings={settings}
         onSave={handleSaveSettings}
         onClose={() => setIsSettingsOpen(false)}
+      />
+
+      <WorkflowRunnerModal
+        isOpen={isWorkflowModalOpen}
+        onClose={() => setIsWorkflowModalOpen(false)}
+        onStatusMessage={(msg) => setStatusMessage(msg)}
       />
     </div>
   );

@@ -3,7 +3,7 @@
  * Enables AI agents to scan interactive elements, click, input, scroll, and execute actions with human-in-the-loop confirmation.
  */
 
-export type AutomationActionType = 'click' | 'type' | 'scroll' | 'wait' | 'navigate';
+export type AutomationActionType = 'click' | 'type' | 'select' | 'scroll' | 'wait' | 'navigate';
 
 export interface InteractiveElement {
   id: number;
@@ -28,12 +28,14 @@ export interface AutomationAction {
   id: string;
   type: AutomationActionType;
   targetId?: number;
+  selector?: string;         // Direct CSS selector (for workflows / replay)
   targetDescription?: string;
-  value?: string;           // for 'type' action
+  value?: string;           // for 'type' or 'select' action
   direction?: 'up' | 'down'; // for 'scroll' action
   amount?: number;          // scroll pixels or wait ms
   url?: string;             // for 'navigate' action
   reason?: string;          // Reason explaining why AI proposes this action
+  dangerous?: boolean;      // Marks high-impact actions like submit/order
   status: 'pending' | 'approved' | 'executing' | 'completed' | 'failed' | 'rejected';
   error?: string;
   createdAt: number;

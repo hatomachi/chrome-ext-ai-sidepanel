@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>【社内ポータル】休日出勤申請システム</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: #f1f5f9;
+      color: #1e293b;
+      min-height: 100vh;
+      padding: 32px 16px;
+    }
+    .container {
+      max-width: 640px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+      border: 1px solid #e2e8f0;
+    }
+    .header {
+      background: linear-gradient(135deg, #1e3a8a, #2563eb);
+      color: #ffffff;
+      padding: 24px 28px;
+    }
+    .header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .header p {
+      font-size: 13px;
+      color: #bfdbfe;
+      margin-top: 6px;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      background-color: #3b82f6;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      margin-left: 8px;
+    }
+    .form-body {
+      padding: 28px;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      color: #334155;
+      margin-bottom: 6px;
+    }
+    .required {
+      color: #ef4444;
+      margin-left: 4px;
+      font-size: 12px;
+    }
+    .form-control {
+      width: 100%;
+      padding: 10px 14px;
+      font-size: 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      outline: none;
+      transition: all 0.2s ease;
+      background-color: #f8fafc;
+    }
+    .form-control:focus {
+      border-color: #2563eb;
+      background-color: #ffffff;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+    .time-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    textarea.form-control {
+      min-height: 100px;
+      resize: vertical;
+    }
+    .button-group {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 28px;
+      padding-top: 20px;
+      border-top: 1px solid #e2e8f0;
+    }
+    .btn {
+      padding: 10px 22px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      border: none;
+      transition: all 0.15s ease;
+    }
+    .btn-primary {
+      background-color: #2563eb;
+      color: white;
+    }
+    .btn-primary:hover {
+      background-color: #1d4ed8;
+    }
+    .btn-secondary {
+      background-color: #e2e8f0;
+      color: #475569;
+    }
+    .btn-secondary:hover {
+      background-color: #cbd5e1;
+    }
+    .notice {
+      background-color: #eff6ff;
+      border-left: 4px solid #3b82f6;
+      padding: 12px 16px;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #1e40af;
+      margin-bottom: 24px;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background-color: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(2px);
+      z-index: 9999;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-overlay.active {
+      display: flex;
+    }
+    .modal-content {
+      background: #ffffff;
+      width: 90%;
+      max-width: 460px;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+      animation: modalFadeIn 0.2s ease-out;
+    }
+    @keyframes modalFadeIn {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .modal-body {
+      font-size: 14px;
+      color: #475569;
+      margin: 16px 0 24px 0;
+      line-height: 1.6;
+    }
+    .summary-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .summary-row:last-child {
+      margin-bottom: 0;
+    }
+    .summary-label {
+      color: #64748b;
+    }
+    .summary-val {
+      font-weight: 600;
+      color: #0f172a;
+    }
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+    .btn-yes {
+      background-color: #10b981;
+      color: white;
+    }
+    .btn-yes:hover {
+      background-color: #059669;
+    }
+
+    /* Result State */
+    .result-container {
+      display: none;
+      padding: 40px 28px;
+      text-align: center;
+    }
+    .result-icon {
+      width: 64px;
+      height: 64px;
+      background-color: #dcfce7;
+      color: #15803d;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      margin: 0 auto 16px auto;
+    }
+    .result-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #166534;
+      margin-bottom: 8px;
+    }
+    .result-desc {
+      font-size: 14px;
+      color: #475569;
+      margin-bottom: 24px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div class="header">
+      <h1>
+        社内ポータル申請
+        <span class="badge">検証用モック</span>
+      </h1>
+      <p>勤怠・人事システム ＞ 休日出勤事前申請</p>
+    </div>
+
+    <!-- 申請入力フォーム -->
+    <div id="formSection" class="form-body">
+      <div class="notice">
+        ℹ️ 休日出勤は原則として事前に所属長の承認が必要です。申請理由と勤務予定時間を正確に入力してください。
+      </div>
+
+      <form id="holidayForm" onsubmit="event.preventDefault(); handleOpenConfirmModal();">
+        <!-- 1. 承認者選択 -->
+        <div class="form-group">
+          <label for="approver">承認者（所属長）<span class="required">※必須</span></label>
+          <select id="approver" name="approver" class="form-control" required>
+            <option value="">-- 選択してください --</option>
+            <option value="山田 部長">山田 太郎（システム開発部 部長）</option>
+            <option value="佐藤 課長">佐藤 次郎（基盤グループ 課長）</option>
+            <option value="鈴木 リーダー">鈴木 花子（AI推進チーム リーダー）</option>
+          </select>
+        </div>
+
+        <!-- 2. 勤務予定日 -->
+        <div class="form-group">
+          <label for="workDate">出勤予定日<span class="required">※必須</span></label>
+          <input type="date" id="workDate" name="workDate" class="form-control" required>
+        </div>
+
+        <!-- 3. 勤務予定時間 -->
+        <div class="form-group">
+          <label>勤務予定時間<span class="required">※必須</span></label>
+          <div class="time-grid">
+            <div>
+              <input type="time" id="startTime" name="startTime" class="form-control" value="09:00" required>
+            </div>
+            <div>
+              <input type="time" id="endTime" name="endTime" class="form-control" value="18:00" required>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. 勤務事由 -->
+        <div class="form-group">
+          <label for="reason">勤務事由・業務内容<span class="required">※必須</span></label>
+          <textarea id="reason" name="reason" class="form-control" placeholder="例: システム緊急リリースおよびデータベース移行作業の立ち会いのため" required></textarea>
+        </div>
+
+        <!-- アクションボタン -->
+        <div class="button-group">
+          <button type="button" class="btn btn-secondary" onclick="resetForm()">リセット</button>
+          <button type="submit" id="submitBtn" class="btn btn-primary">申請する</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- 申請完了画面 -->
+    <div id="resultSection" class="result-container">
+      <div class="result-icon">✓</div>
+      <div class="result-title">休日出勤申請を受け付けました</div>
+      <div class="result-desc">
+        承認者に通知メールを送信しました。<br>
+        受付番号: <strong id="requestIdText">#REQ-2026-92601</strong>
+      </div>
+      <button type="button" class="btn btn-secondary" onclick="reloadForm()">新しい申請を行う</button>
+    </div>
+  </div>
+
+  <!-- 確認モーダル -->
+  <div id="confirmModal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-title">
+        <span>⚠️</span> 休日出勤申請の最終確認
+      </div>
+      <div class="modal-body">
+        以下の内容で申請を所属長へ提出します。よろしいですか？
+        <div class="summary-box">
+          <div class="summary-row">
+            <span class="summary-label">承認者:</span>
+            <span id="summaryApprover" class="summary-val">-</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-label">出勤日:</span>
+            <span id="summaryDate" class="summary-val">-</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-label">勤務時間:</span>
+            <span id="summaryTime" class="summary-val">-</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-label">勤務事由:</span>
+            <span id="summaryReason" class="summary-val">-</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="confirmCancelBtn" class="btn btn-secondary" onclick="handleCloseConfirmModal()">キャンセル</button>
+        <button type="button" id="confirmYesBtn" class="btn btn-yes" onclick="handleFinalSubmit()">YES (承認して送信)</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const today = new Date();
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const dateStr = tomorrow.toISOString().split('T')[0];
+      const dateInput = document.getElementById('workDate');
+      if (dateInput && !dateInput.value) {
+        dateInput.value = dateStr;
+      }
+    });
+
+    function handleOpenConfirmModal() {
+      const approver = document.getElementById('approver').value || '(未選択)';
+      const workDate = document.getElementById('workDate').value || '(未設定)';
+      const startTime = document.getElementById('startTime').value;
+      const endTime = document.getElementById('endTime').value;
+      const reason = document.getElementById('reason').value || '(未入力)';
+
+      document.getElementById('summaryApprover').innerText = approver;
+      document.getElementById('summaryDate').innerText = workDate;
+      document.getElementById('summaryTime').innerText = `${startTime} 〜 ${endTime}`;
+      document.getElementById('summaryReason').innerText = reason.length > 25 ? reason.slice(0, 25) + '...' : reason;
+
+      document.getElementById('confirmModal').classList.add('active');
+    }
+
+    function handleCloseConfirmModal() {
+      document.getElementById('confirmModal').classList.remove('active');
+    }
+
+    function handleFinalSubmit() {
+      handleCloseConfirmModal();
+      document.getElementById('formSection').style.display = 'none';
+      document.getElementById('resultSection').style.display = 'block';
+      const randomNum = Math.floor(10000 + Math.random() * 90000);
+      document.getElementById('requestIdText').innerText = `#REQ-2026-${randomNum}`;
+    }
+
+    function resetForm() {
+      document.getElementById('holidayForm').reset();
+    }
+
+    function reloadForm() {
+      document.getElementById('formSection').style.display = 'block';
+      document.getElementById('resultSection').style.display = 'none';
+      resetForm();
+    }
+  </script>
+</body>
+</html>

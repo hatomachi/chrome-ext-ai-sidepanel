@@ -32,8 +32,8 @@ export function formatScanResultForPrompt(scanResult: AutomationScanResult): str
     text += `${desc}\n`;
   }
 
-  text += `\nもし次の操作（クリックや入力）を提案する場合は、以下の \`\`\`browser_action\`\`\` JSONブロックで出力してください：\n`;
-  text += `\`\`\`browser_action\n{\n  "type": "click" | "type" | "scroll" | "wait" | "navigate",\n  "targetId": 1,\n  "targetDescription": "対象要素の説明",\n  "value": "入力する文字列（typeの場合）",\n  "direction": "down" | "up",\n  "amount": 500,\n  "url": "遷移先URL（navigateの場合）",\n  "reason": "操作の目的・理由"\n}\n\`\`\`\n`;
+  text += `\nもし次の操作（クリックや入力、選択）を提案する場合は、以下の \`\`\`browser_action\`\`\` JSONブロックで出力してください：\n`;
+  text += `\`\`\`browser_action\n{\n  "type": "click" | "type" | "select" | "scroll" | "wait" | "navigate",\n  "targetId": 1,\n  "targetDescription": "対象要素の説明",\n  "value": "入力または選択する文字列",\n  "direction": "down" | "up",\n  "amount": 500,\n  "url": "遷移先URL（navigateの場合）",\n  "reason": "操作の目的・理由"\n}\n\`\`\`\n`;
 
   return text;
 }
@@ -50,7 +50,7 @@ export function parseActionProposal(text: string): BrowserActionProposal | null 
 
   try {
     const rawJson = JSON.parse(match[1]);
-    const validTypes: AutomationActionType[] = ['click', 'type', 'scroll', 'wait', 'navigate'];
+    const validTypes: AutomationActionType[] = ['click', 'type', 'select', 'scroll', 'wait', 'navigate'];
     if (!validTypes.includes(rawJson.type)) {
       return null;
     }

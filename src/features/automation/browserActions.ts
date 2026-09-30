@@ -93,14 +93,40 @@ export async function executeBrowserAction(
           }, 1200);
         }
 
-        // Locate element by stamped ID or description
+        // Locate element by stamped ID, selector, or text description
         function findTargetElement(): HTMLElement | null {
+          // 1. By stamped ID
           if (act.targetId !== undefined) {
             const byId = document.querySelector<HTMLElement>(
               `[data-sidepanel-element-id="${act.targetId}"]`
             );
             if (byId) return byId;
           }
+
+          // 2. By direct CSS selector
+          if (act.selector) {
+            try {
+              const bySelector = document.querySelector<HTMLElement>(act.selector);
+              if (bySelector) return bySelector;
+            } catch (e) {
+              // Ignore invalid selector syntax and fall through
+            }
+          }
+
+          // 3. Fallback by text matching for buttons/links if targetDescription or value is provided
+          const searchText = act.targetDescription || act.value;
+          if (searchText && (act.type === 'click' || !act.type)) {
+            const clickableElements = Array.from(
+              document.querySelectorAll<HTMLElement>('button, a, [role="button"], input[type="submit"], input[type="button"]')
+            );
+            for (const el of clickableElements) {
+              const elText = el.innerText?.trim() || el.getAttribute('value') || el.getAttribute('aria-label') || '';
+              if (elText && (elText === searchText || elText.includes(searchText))) {
+                return el;
+              }
+            }
+          }
+
           return null;
         }
 
@@ -119,7 +145,7 @@ export async function executeBrowserAction(
         if (!target) {
           return {
             success: false,
-            error: `対象要素 [${act.targetId ?? '?'}] が見つかりませんでした。画面が再読み込みされたか要素が消失した可能性があります。`,
+            error: `対象要素 [${act.selector || act.targetId || act.targetDescription || '?'}] が見つかりませんでした。画面が再読み込みされたか要素が消失した可能性があります。`,
           };
         }
 
@@ -147,7 +173,7 @@ export async function executeBrowserAction(
           const label = target.innerText?.trim().slice(0, 30) || target.getAttribute('aria-label') || '';
           return {
             success: true,
-            message: `[${act.targetId}]「${label || act.targetDescription || target.tagName}」をクリックしました`,
+            message: `[${act.selector || act.targetId || ''}]「${label || act.targetDescription || target.tagName}」をクリックしました`,
           };
         }
 
@@ -181,13 +207,53 @@ export async function executeBrowserAction(
           } else {
             return {
               success: false,
-              error: `対象要素 [${act.targetId}] (${target.tagName}) はテキスト入力可能なフィールドではありません`,
+              error: `対象要素 [${act.selector || act.targetId}] (${target.tagName}) はテキスト入力可能なフィールドではありません`,
             };
           }
 
           return {
             success: true,
-            message: `[${act.targetId}] に「${textToType}」を入力しました`,
+            message: `[${act.selector || act.targetId || ''}] に「${textToType}」を入力しました`,
+          };
+        }
+
+        // 4. Select action (<select> dropdown)
+        if (act.type === 'select') {
+          highlightTarget(target, '#8b5cf6'); // purple
+          if (!(target instanceof HTMLSelectElement)) {
+            return {
+              success: false,
+              error: `対象要素 [${act.selector || act.targetId}] (${target.tagName}) はセレクトボックスではありません`,
+            };
+          }
+
+          const valToSelect = (act.value || '').trim();
+          let matched = false;
+
+          // Try exact value or text match
+          for (let i = 0; i < target.options.length; i++) {
+            const opt = target.options[i];
+            if (opt.value === valToSelect || opt.text.trim() === valToSelect || opt.text.includes(valToSelect)) {
+              target.selectedIndex = i;
+              matched = true;
+              break;
+            }
+          }
+
+          if (!matched) {
+            return {
+              success: false,
+              error: `セレクトボックスに対象「${valToSelect}」に一致する選択肢が見つかりませんでした`,
+            };
+          }
+
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.dispatchEvent(new Event('change', { bubbles: true }));
+
+          const selectedLabel = target.options[target.selectedIndex]?.text || valToSelect;
+          return {
+            success: true,
+            message: `[${act.selector || act.targetId || ''}] で「${selectedLabel}」を選択しました`,
           };
         }
 
